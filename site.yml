@@ -1,0 +1,5 @@
+- name: Provision Mosquitto MQTT broker (TLS + client auth)
+  hosts: mosquitto
+  become: true
+  roles:
+    - role: mosquitto

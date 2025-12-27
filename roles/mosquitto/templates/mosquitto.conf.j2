@@ -1,0 +1,50 @@
+# Minimal production-ish config
+persistence true
+per_listener_settings true
+persistence_location /var/lib/mosquitto/
+
+log_dest syslog
+log_type error
+log_type warning
+log_type notice
+log_type information
+
+{% if mosquitto_enable_local_listener | bool %}
+listener {{ mosquitto_local_listener_port }} {{ mosquitto_local_listener_bind }}
+protocol mqtt
+allow_anonymous true
+{% endif %}
+
+# MQTT over TLS
+listener {{ mosquitto_listener_port }}
+protocol mqtt
+
+cafile {{ mosquitto_ca_crt }}
+certfile {{ mosquitto_server_crt }}
+keyfile {{ mosquitto_server_key }}
+
+tls_version tlsv1.2
+
+# TLS listener should not allow anonymous
+allow_anonymous false
+
+{% if mosquitto_require_client_cert %}
+# mTLS ON
+require_certificate true
+
+# Make CN become username (needed for ACL patterns like %u)
+use_identity_as_username true
+
+{% if mosquitto_acl_enabled | bool %}
+acl_file {{ mosquitto_acl_file }}
+{% endif %}
+
+{% else %}
+# mTLS OFF
+require_certificate false
+{% endif %}
+
+# Optional hardening knobs you can discuss:
+# max_connections 10000
+# max_inflight_messages 20
+# message_size_limit 1048576

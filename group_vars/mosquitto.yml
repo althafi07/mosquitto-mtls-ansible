@@ -1,0 +1,25 @@
+# Mosquitto ACL configuration (environment-specific)
+
+mosquitto_acl_enabled: true
+mosquitto_acl_mode: "per_building"
+
+# List of buildings / tenants
+mosquitto_buildings:
+  - berlin_hq
+  - munich_hq
+  - frankfurt_hq
+  - hamburg_hq
+  - Stuttgart_hq
+
+# ACL topic root
+mosquitto_acl_buildings_root: "buildings"
+
+# Optional: allow reading $SYS (usually false)
+mosquitto_acl_allow_sys_read: false
+
+mosquitto_server_san_dns_extra:
+  - "ec2 DNS name"
+
+mosquitto_server_san_ip_extra:
+  - "public_ip"
+

@@ -1,0 +1,63 @@
+# MQTT listener
+mosquitto_listener_port: 8883
+
+# TLS paths
+mosquitto_certs_dir: /etc/mosquitto/certs
+mosquitto_ca_key: "{{ mosquitto_certs_dir }}/ca.key"
+mosquitto_ca_crt: "{{ mosquitto_certs_dir }}/ca.crt"
+mosquitto_server_key: "{{ mosquitto_certs_dir }}/server.key"
+mosquitto_server_csr: "{{ mosquitto_certs_dir }}/server.csr"
+mosquitto_server_crt: "{{ mosquitto_certs_dir }}/server.crt"
+
+# cert subjects
+mosquitto_ca_subject: "/C=DE/O=Sensorberg Demo CA/CN=Sensorberg Mosquitto CA"
+mosquitto_server_cn: "{{ inventory_hostname }}"
+mosquitto_server_subject: "/C=DE/O=Sensorberg/CN={{ mosquitto_server_cn }}"
+
+# Mosquitto settings
+mosquitto_allow_anonymous: false
+mosquitto_require_client_cert: true
+mosquitto_use_identity_as_username: true
+
+# Firewall
+mosquitto_open_firewalld: true
+
+# Exporter
+mosquitto_exporter_enabled: true
+mosquitto_exporter_image: "docker.io/sapcc/mosquitto-exporter:latest"
+mosquitto_exporter_port: 9234
+mosquitto_exporter_bind: "0.0.0.0:9234"
+mosquitto_exporter_endpoint: "tcp://127.0.0.1:1883"
+mosquitto_exporter_open_firewalld: true
+
+# --- Local listener for exporter ---
+mosquitto_enable_local_listener: true
+mosquitto_local_listener_bind: "127.0.0.1"
+mosquitto_local_listener_port: 1883
+
+# --- ACLs ---
+mosquitto_acl_enabled: true
+
+# per_building means:
+#   - client cert CN == building_id
+#   - allowed topics: buildings/<CN>/#
+mosquitto_acl_mode: "per_building"
+mosquitto_buildings: []
+mosquitto_acl_file: "/etc/mosquitto/acl.conf"
+
+# allow a building client to publish/subscribe only inside its namespace
+mosquitto_acl_buildings_root: "buildings"
+
+# Optional: allow clients to read broker $SYS stats (usually not needed for devices)
+mosquitto_acl_allow_sys_read: false
+
+## store client certs
+mosquitto_client_certs_dir: "{{ mosquitto_certs_dir }}/clients"
+mosquitto_mtls_clients_dir: "{{ mosquitto_certs_dir }}/clients"
+
+# Extra SANs for the broker certificate (so remote clients can validate hostname)
+mosquitto_server_san_dns_extra: []
+mosquitto_server_san_ip_extra: []
+
+# Optional: auto-add public IPv4 from facts (requires gathering facts)
+mosquitto_server_san_add_default_ipv4: true

@@ -1,0 +1,195 @@
+- name: Create cert directory
+  ansible.builtin.file:
+    path: "{{ mosquitto_certs_dir }}"
+    state: directory
+    owner: mosquitto
+    group: mosquitto
+    mode: "0750"
+
+- name: Generate CA private key (if missing)
+  ansible.builtin.command:
+    cmd: "openssl genrsa -out {{ mosquitto_ca_key }} 4096"
+    creates: "{{ mosquitto_ca_key }}"
+
+- name: Generate CA certificate (if missing)
+  ansible.builtin.command:
+    cmd: >
+      openssl req -x509 -new -nodes
+      -key {{ mosquitto_ca_key }}
+      -sha256 -days 3650
+      -subj "{{ mosquitto_ca_subject }}"
+      -out {{ mosquitto_ca_crt }}
+    creates: "{{ mosquitto_ca_crt }}"
+
+- name: Generate server private key (if missing)
+  ansible.builtin.command:
+    cmd: "openssl genrsa -out {{ mosquitto_server_key }} 2048"
+    creates: "{{ mosquitto_server_key }}"
+
+- name: Generate server CSR (if missing)
+  ansible.builtin.command:
+    cmd: >
+      openssl req -new
+      -key {{ mosquitto_server_key }}
+      -subj "{{ mosquitto_server_subject }}"
+      -out {{ mosquitto_server_csr }}
+    creates: "{{ mosquitto_server_csr }}"
+
+- name: Create SAN config for server cert
+  ansible.builtin.copy:
+    dest: "{{ mosquitto_certs_dir }}/server-san.cnf"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [ v3_req ]
+      subjectAltName = @alt_names
+      keyUsage = digitalSignature, keyEncipherment
+      extendedKeyUsage = serverAuth
+
+      [ alt_names ]
+      DNS.1 = {{ ansible_facts['fqdn'] | default(inventory_hostname) }}
+      DNS.2 = localhost
+      IP.1  = 127.0.0.1
+      {% set dns_i = 3 %}
+      {% for d in (mosquitto_server_san_dns_extra | default([])) %}
+      DNS.{{ dns_i }} = {{ d }}
+      {% set dns_i = dns_i + 1 %}
+      {% endfor %}
+
+      {% set ip_i = 2 %}
+      {% if mosquitto_server_san_add_default_ipv4 | default(true) and (ansible_facts.default_ipv4.address is defined) %}
+      IP.{{ ip_i }} = {{ ansible_facts.default_ipv4.address }}
+      {% set ip_i = ip_i + 1 %}
+      {% endif %}
+      {% for ip in (mosquitto_server_san_ip_extra | default([])) %}
+      IP.{{ ip_i }} = {{ ip }}
+      {% set ip_i = ip_i + 1 %}
+      {% endfor %}
+
+
+- name: Sign server cert with CA (if missing)
+  ansible.builtin.command:
+    cmd: >
+      openssl x509 -req -in {{ mosquitto_server_csr }}
+      -CA {{ mosquitto_ca_crt }} -CAkey {{ mosquitto_ca_key }} -CAcreateserial
+      -out {{ mosquitto_server_crt }} -days 825 -sha256
+      -extfile {{ mosquitto_certs_dir }}/server-san.cnf -extensions v3_req
+    creates: "{{ mosquitto_server_crt }}"
+
+- name: Ensure client cert directory exists
+  ansible.builtin.file:
+    path: "{{ mosquitto_client_certs_dir }}"
+    state: directory
+    owner: mosquitto
+    group: mosquitto
+    mode: "0750"
+
+- name: Generate per-building client keys (if missing)
+  ansible.builtin.command:
+    cmd: "openssl genrsa -out {{ mosquitto_client_certs_dir }}/{{ item }}.key 2048"
+    creates: "{{ mosquitto_client_certs_dir }}/{{ item }}.key"
+  loop: "{{ mosquitto_buildings }}"
+  when: mosquitto_acl_mode == "per_building"
+
+- name: Generate per-building client CSRs (if missing)
+  ansible.builtin.command:
+    cmd: >
+      openssl req -new
+      -key {{ mosquitto_client_certs_dir }}/{{ item }}.key
+      -subj "/C=DE/O=Sensorberg/CN={{ item }}"
+      -out {{ mosquitto_client_certs_dir }}/{{ item }}.csr
+    creates: "{{ mosquitto_client_certs_dir }}/{{ item }}.csr"
+  loop: "{{ mosquitto_buildings }}"
+  when: mosquitto_acl_mode == "per_building"
+
+- name: Sign per-building client certs (if missing)
+  ansible.builtin.command:
+    cmd: >
+      openssl x509 -req -in {{ mosquitto_client_certs_dir }}/{{ item }}.csr
+      -CA {{ mosquitto_ca_crt }} -CAkey {{ mosquitto_ca_key }} -CAcreateserial
+      -out {{ mosquitto_client_certs_dir }}/{{ item }}.crt -days 825 -sha256
+    creates: "{{ mosquitto_client_certs_dir }}/{{ item }}.crt"
+  loop: "{{ mosquitto_buildings }}"
+  when: mosquitto_acl_mode == "per_building"
+
+
+- name: Build list of TLS files that may exist
+  ansible.builtin.set_fact:
+    mosquitto_tls_files: >-
+      {{
+        [
+          mosquitto_ca_crt,
+          mosquitto_server_crt,
+          mosquitto_server_key,
+
+          mosquitto_certs_dir ~ '/test-client.crt',
+          mosquitto_certs_dir ~ '/test-client.key',
+          mosquitto_certs_dir ~ '/test-client.csr'
+        ]
+        +
+        (
+          (mosquitto_acl_mode == "per_building")
+          | ternary(
+              (mosquitto_buildings | map('regex_replace', '^(.*)$', mosquitto_client_certs_dir ~ '/\\1.crt') | list)
+              +
+              (mosquitto_buildings | map('regex_replace', '^(.*)$', mosquitto_client_certs_dir ~ '/\\1.key') | list)
+              +
+              (mosquitto_buildings | map('regex_replace', '^(.*)$', mosquitto_client_certs_dir ~ '/\\1.csr') | list),
+              []
+            )
+        )
+      }}
+
+   
+
+- name: Stat TLS files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ mosquitto_tls_files }}"
+  register: tls_stat
+
+- name: Set ownership and permissions on TLS certs (crt/csr)
+  ansible.builtin.file:
+    path: "{{ item.stat.path }}"
+    owner: mosquitto
+    group: mosquitto
+    mode: "0640"
+  loop: "{{ tls_stat.results }}"
+  when:
+    - item.stat.exists
+    - item.stat.path is regex(".*\\.(crt|csr)$")
+
+- name: Set ownership and strict permissions on TLS private keys
+  ansible.builtin.file:
+    path: "{{ item.stat.path }}"
+    owner: mosquitto
+    group: mosquitto
+    mode: "0600"
+  loop: "{{ tls_stat.results }}"
+  when:
+    - item.stat.exists
+    - item.stat.path is regex(".*\\.key$")
+
+- name: Generate test client key (if missing)
+  ansible.builtin.command:
+    cmd: "openssl genrsa -out {{ mosquitto_certs_dir }}/test-client.key 2048"
+    creates: "{{ mosquitto_certs_dir }}/test-client.key"
+
+- name: Generate test client CSR (if missing)
+  ansible.builtin.command:
+    cmd: >
+      openssl req -new
+      -key {{ mosquitto_certs_dir }}/test-client.key
+      -subj "/C=DE/O=Sensorberg/CN=test-client"
+      -out {{ mosquitto_certs_dir }}/test-client.csr
+    creates: "{{ mosquitto_certs_dir }}/test-client.csr"
+
+- name: Sign test client cert (if missing)
+  ansible.builtin.command:
+    cmd: >
+      openssl x509 -req -in {{ mosquitto_certs_dir }}/test-client.csr
+      -CA {{ mosquitto_ca_crt }} -CAkey {{ mosquitto_ca_key }} -CAcreateserial
+      -out {{ mosquitto_certs_dir }}/test-client.crt -days 825 -sha256
+    creates: "{{ mosquitto_certs_dir }}/test-client.crt"
+

@@ -1,0 +1,24 @@
+# Mosquitto ACLs (managed by Ansible)
+# Mode: {{ mosquitto_acl_mode }}
+
+{% if mosquitto_acl_mode == "per_building" %}
+# Each building uses its own client certificate.
+# CN becomes username because we set:
+#   use_identity_as_username true
+#
+# Allow each building to read/write ONLY under:
+#   {{ mosquitto_acl_buildings_root }}/<username>/#
+pattern readwrite {{ mosquitto_acl_buildings_root }}/%u/#
+
+{% if mosquitto_acl_allow_sys_read | bool %}
+# Optional: allow reading broker stats (only if needed)
+topic read $SYS/#
+{% endif %}
+
+# Hard deny everything else
+topic deny #
+
+{% else %}
+# Unknown mode: deny all
+topic deny #
+{% endif %}

@@ -1,0 +1,20 @@
+cat <<EOF > .gitignore
+# Ansible
+*.retry
+
+# SSH keys
+*.pem
+
+# TLS private material
+*.key
+*.csr
+
+# Generated certificates (demo only)
+roles/mosquitto/files/*.crt
+roles/mosquitto/files/*.key
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+EOF

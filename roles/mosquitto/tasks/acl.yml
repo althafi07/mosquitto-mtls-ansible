@@ -1,0 +1,9 @@
+---
+- name: Render Mosquitto ACL file
+  ansible.builtin.template:
+    src: acl.conf.j2
+    dest: "{{ mosquitto_acl_file }}"
+    owner: mosquitto
+    group: mosquitto
+    mode: "0640"
+  notify: restart mosquitto

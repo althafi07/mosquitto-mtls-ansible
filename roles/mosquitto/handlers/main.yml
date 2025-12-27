@@ -1,0 +1,9 @@
+- name: restart mosquitto
+  ansible.builtin.service:
+    name: mosquitto
+    state: restarted
+
+- name: restart mosquitto_exporter
+  ansible.builtin.service:
+    name: mosquitto_exporter
+    state: restarted

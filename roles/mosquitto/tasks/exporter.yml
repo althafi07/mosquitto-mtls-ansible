@@ -1,0 +1,32 @@
+---
+- name: Install podman (for exporter container)
+  ansible.builtin.dnf:
+    name: podman
+    state: present
+
+- name: Render systemd unit for mosquitto exporter
+  ansible.builtin.template:
+    src: mosquitto_exporter.service.j2
+    dest: /etc/systemd/system/mosquitto_exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart mosquitto_exporter
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Enable and start mosquitto exporter
+  ansible.builtin.service:
+    name: mosquitto_exporter
+    state: started
+    enabled: true
+
+- name: Open exporter port in firewalld
+  ansible.posix.firewalld:
+    port: "{{ mosquitto_exporter_port }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  when: mosquitto_exporter_open_firewalld | bool

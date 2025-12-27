@@ -1,0 +1,22 @@
+[Unit]
+Description=Prometheus Mosquitto Exporter (container)
+After=network-online.target mosquitto.service
+Wants=network-online.target
+Requires=mosquitto.service
+
+[Service]
+Restart=always
+RestartSec=5
+
+ExecStartPre=/usr/bin/podman pull {{ mosquitto_exporter_image }}
+
+ExecStart=/usr/bin/podman run --rm --name mosquitto-exporter \
+  --network host \
+  {{ mosquitto_exporter_image }} \
+  --endpoint {{ mosquitto_exporter_endpoint }} \
+  --bind-address {{ mosquitto_exporter_bind }}
+
+ExecStop=/usr/bin/podman stop -t 10 mosquitto-exporter
+
+[Install]
+WantedBy=multi-user.target

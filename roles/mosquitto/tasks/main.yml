@@ -1,0 +1,102 @@
+---
+- name: Enable EPEL on Rocky
+  block:
+    - name: Import EPEL GPG key
+      ansible.builtin.rpm_key:
+        key: https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-9
+        state: present
+
+    - name: Install EPEL release RPM
+      ansible.builtin.dnf:
+        name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+        state: present
+
+    #- name: Refresh DNF cache
+      #ansible.builtin.dnf:
+        #update_cache: true
+
+    - name: Enable CodeReady Builder repo
+      ansible.builtin.command: >
+        subscription-manager repos --enable codeready-builder-for-rhel-9-{{ ansible_facts['architecture'] }}-rpms
+      register: crb_enable
+      changed_when: crb_enable.rc == 0
+      failed_when: false
+      when: ansible_facts['distribution'] == "RedHat"
+  when: ansible_facts['os_family'] == "RedHat"
+
+
+- name: Install Mosquitto base packages
+  ansible.builtin.dnf:
+    name:
+      - mosquitto
+      - openssl
+      - firewalld
+    state: latest
+
+- name: Try to install mosquitto-clients if repo provides it
+  ansible.builtin.dnf:
+    name: mosquitto-clients
+    state: present
+  register: clients_install
+  failed_when: false
+
+- name: Ensure mosquitto persistence dir exists (prevents mosquitto.db write errors)
+  ansible.builtin.file:
+    path: /var/lib/mosquitto
+    state: directory
+    owner: mosquitto
+    group: mosquitto
+    mode: "0750"
+
+- name: Ensure firewalld is running
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: true
+  when: mosquitto_open_firewalld | bool
+
+- name: TLS setup (CA + server cert + test client cert)
+  ansible.builtin.import_tasks: tls.yml
+
+- name: Deploy Mosquitto ACL file
+  ansible.builtin.template:
+    src: acl.conf.j2
+    dest: /etc/mosquitto/acl.conf
+    owner: mosquitto
+    group: mosquitto
+    mode: "0640"
+  notify: restart mosquitto  
+
+- name: Render mosquitto.conf
+  ansible.builtin.template:
+    src: mosquitto.conf.j2
+    dest: /etc/mosquitto/mosquitto.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart mosquitto
+
+#- name: Install ACLs
+  #ansible.builtin.import_tasks: acl.yml
+  #when: mosquitto_acl_enabled | bool  
+
+- name: Apply mosquitto config changes before starting exporter
+  ansible.builtin.meta: flush_handlers  
+
+- name: Enable and start Mosquitto
+  ansible.builtin.service:
+    name: mosquitto
+    state: started
+    enabled: true  
+
+- name: Open MQTT TLS port in firewalld
+  ansible.posix.firewalld:
+    port: "{{ mosquitto_listener_port }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  when: mosquitto_open_firewalld | bool
+
+- name: Install exporter
+  ansible.builtin.import_tasks: exporter.yml
+  when: mosquitto_exporter_enabled | bool
