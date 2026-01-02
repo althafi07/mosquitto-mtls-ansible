@@ -337,9 +337,46 @@ High Availability:
 
 * We can run multiple Mosquitto nodes behind HAProxy/NGINX/cloud LB Or Keepalived (VIP)
 
-* Use shared persistence (NFS) or stateless brokers
+* Use shared persistence (NFS) or stateless brokers(I dont recommend this though!!!)
 
-* Use bridging between brokers for message replication
+* Use bridging between brokers for message replication(I will Not use this in production)
+
+** We can Run multiple Mosquitto brokers as a stateless cluster
+ - Deploy 2–3 Mosquitto instances (VMs or containers) in different failure domains (AZs / racks).
+ - Each broker is configured identically (same TLS CA, same auth policy/ACL logic).
+
+** Put a TCP load balancer in front (L4)
+ - We can Use a real L4 LB (AWS NLB for eg) or HAProxy(if onprem) in TCP mode.
+ - Clients connect to: mqtt.test.tld:8883. LB forwards to healthy brokers.
+ - Health checks:
+   - TCP check on 8883 (basic)
+** Store sessions + retained messages + offline queues outside Mosquitto
+ - Mosquitto by itself does not replicate persistent session state or retained messages or offline queued QoS1/QoS2 messages.
+ - so I recommend Mosquitto = ingestion + auth + topic policy and the backend message bus as kafka
+ - How it works:
+    - Devices publish telemetry to Mosquitto
+    - A “bridge/connector” service subscribes (or brokers bridge) into Kafka  
+    - Downstream services consume from Kafka
+    - If a broker dies, clients reconnect to another broker, and the durable stream is still intact.  
+
+******What happens during failures**************
+Scenario 1:
+    IF Broker dies--->LB marks it unhealthy--->Clients reconnect (MQTT reconnect behavior) to another broker--->Telemetry continues--->Anything “durable” is safe because it’s in Kafka (not in broker disk)
+
+Scenario 2:
+If LB dies
+    - In cloud: use managed LB (already HA)
+    - On-prem: We can run two HAProxy nodes with Keepalived VIP (active/passive)
+Scenario 3: 
+If Whole site/AZ dies
+    - Run brokers in multiple AZs
+    - We can Use global DNS failover or multi-AZ LB
+    - Backend bus (Kafka) must also be multi-AZ to truly survive  
+
+So my suggestion is "Stateless Mosquitto fleet behind an L4 LB, with durable ingestion into Kafka, and PKI-driven client identities.”" should be solution for HA
+
+The question i have is what we really need? Do we need offline QoS1 delivery guarantees (persistent sessions/queued messages), or is telemetry mostly streaming?
+
 
 
 
