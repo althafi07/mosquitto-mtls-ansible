@@ -377,6 +377,13 @@ So my suggestion is "Stateless Mosquitto fleet behind an L4 LB, with durable ing
 
 The question i have is what we really need? Do we need offline QoS1 delivery guarantees (persistent sessions/queued messages), or is telemetry mostly streaming?
 
+#######If we reallly need streaming then :(FROM MY POV this will be cleanest HA and scales really well)#############
+
+1. 2–N Mosquitto brokers (stateless). Same config, same CA, same ACL rules. No shared persistence.
+2. L4 Load Balancer in front (TCP 8883). Cloud: AWS NLB (if we are using it). On-prem: HAProxy (TCP mode) behind Keepalived VIP (2 nodes)
+3. Durability goes to a backend event bus. Bridge/connector from MQTT → Kafka . The applications consume from Kafka, not directly from Mosquitto.
+4. Telemetry: QoS0. Devices buffer locally and retry if disconnected.
+5. If broker fails Clients reconnect to another broker via LB. Yes Some in-flight telemetry may be lost (acceptable for streaming) but System stays operational, no shared state required.
 
 
 
